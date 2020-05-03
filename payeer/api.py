@@ -1,10 +1,8 @@
-
 import base64
-import requests
-
 from hashlib import sha256
-from urllib import urlencode
+from urllib.parse import urlencode
 
+import requests
 from django.core.validators import RegexValidator
 
 from payeer.constants import LANGUAGE_RU
@@ -12,7 +10,7 @@ from payeer.forms import MerchantForm
 from payeer.settings import PAYEER
 
 
-__version = '0.1'
+__version = '0.5'
 
 
 class WalletValidator(RegexValidator):
@@ -29,11 +27,13 @@ class PayeerApi(object):
     merchant_url = domain + 'merchant/?'
     api_url = domain + 'ajax/api/api.php'
 
-    def __init__(self, account, api_id, api_pass):
+    def __init__(self, account, api_id, api_pass, merchant_id, merchant_secret_key):
 
         self._account = account
         self._api_id = api_id
         self._api_pass = api_pass
+        self._merchant_id = merchant_id
+        self._merchant_secret_key = merchant_secret_key
 
     @staticmethod
     def validate_wallet(wallet):
@@ -50,14 +50,20 @@ class PayeerApi(object):
         return base64.b64encode(description.encode('utf-8')).decode('utf-8')
 
     def generate_signature(self, order_id, amount, currency, description):
-
+        """
+        :param order_id:
+        :param amount:
+        :param currency:
+        :param description:
+        :return: Generate signature for Merchant API (m_sign)
+        """
         options = [
-            self._api_id,
+            self._merchant_id,
             order_id,
             amount,
             currency,
             description,
-            self._api_pass
+            self._merchant_secret_key
         ]
 
         hash_str = sha256(':'.join(options).encode())
@@ -100,18 +106,19 @@ class PayeerApi(object):
 
         data = form.cleaned_data
 
-        desc_str = self.generate_description(data['description'])
+        desc_str = self.generate_description(data.get('description', ''))
 
         signature = self.generate_signature(
             data['order_id'], data['amount'], data['currency'], desc_str)
 
         params = {
-            'm_shop': self._api_id,
+            'm_shop': self._merchant_id,
             'm_orderid': data['order_id'],
             'm_amount': data['amount'],
             'm_curr': data['currency'],
             'm_desc': desc_str,
             'm_sign': signature,
+            'm_process': 'send',
             'lang': data['language']
         }
 
@@ -120,7 +127,8 @@ class PayeerApi(object):
         return {
             'location': self.merchant_url + urlencode(params),
             'signature': signature,
-            'description': description
+            'description': description,
+            'params': params
         }
 
     def request_api(self, **params):
@@ -313,4 +321,7 @@ class PayeerApi(object):
 payeer_api = PayeerApi(
     account=PAYEER.get('ACCOUNT'),
     api_id=PAYEER.get('API_ID'),
-    api_pass=PAYEER.get('API_PASS'))
+    api_pass=PAYEER.get('API_PASS'),
+    merchant_id=PAYEER.get('MERCHANT_ID'),
+    merchant_secret_key=PAYEER.get('MERCHANT_SECRET_KEY')
+)
