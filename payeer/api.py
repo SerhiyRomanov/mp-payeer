@@ -161,9 +161,9 @@ class PayeerApi(object):
 
         params_for_sign = list(received_params.values())
         params_for_sign.append(self._merchant_secret_key)
-
         sign = self.generate_signature(params_for_sign)
 
+        received_params['m_sign'] = request.POST.get('m_sign', '')
         # TODO: Parse other params from request and add to received_params
 
         if received_params['m_operation_id'] and sign == received_params['m_sign'] \
