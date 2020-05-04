@@ -23,6 +23,17 @@ class PayeerAPIException(Exception):
     pass
 
 
+def get_client_ip(request):
+    x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+    if x_forwarded_for:
+        ip = x_forwarded_for.split(',')[-1].strip()
+    elif request.META.get('HTTP_X_REAL_IP'):
+        ip = request.META.get('HTTP_X_REAL_IP')
+    else:
+        ip = request.META.get('REMOTE_ADDR')
+    return ip
+
+
 class PayeerApi(object):
 
     domain = 'https://payeer.com/'
@@ -127,7 +138,7 @@ class PayeerApi(object):
 
     def merchant_handler(self, request):
 
-        request_ip = request.META.get('REMOTE_ADDR', '')
+        request_ip = get_client_ip(request)
         if request_ip not in PAYEER_ALLOWED_IPS:
             raise PayeerAPIException('Wrong request IP')
 
