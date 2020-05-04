@@ -159,7 +159,9 @@ class PayeerApi(object):
         if m_params:
             received_params['m_params'] = m_params
 
-        params_for_sign = list(received_params.values()).append(self._merchant_secret_key)
+        params_for_sign = list(received_params.values())
+        params_for_sign.append(self._merchant_secret_key)
+
         sign = self.generate_signature(params_for_sign)
 
         # TODO: Parse other params from request and add to received_params
