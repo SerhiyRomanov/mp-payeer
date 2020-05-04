@@ -1,13 +1,15 @@
 import base64
+from collections import OrderedDict
 from hashlib import sha256
 from urllib.parse import urlencode
 
 import requests
 from django.core.validators import RegexValidator
+from django.http import HttpResponse
 
 from payeer.constants import LANGUAGE_RU
 from payeer.forms import MerchantForm
-from payeer.settings import PAYEER
+from payeer.settings import PAYEER, PAYEER_ALLOWED_IPS
 
 
 __version = '0.5'
@@ -49,26 +51,13 @@ class PayeerApi(object):
     def generate_description(description):
         return base64.b64encode(description.encode('utf-8')).decode('utf-8')
 
-    def generate_signature(self, order_id, amount, currency, description):
+    @staticmethod
+    def generate_signature(params):
         """
-        :param order_id:
-        :param amount:
-        :param currency:
-        :param description:
+        :param params: iterable with params for signature
         :return: Generate signature for Merchant API (m_sign)
         """
-        options = [
-            self._merchant_id,
-            order_id,
-            amount,
-            currency,
-            description,
-            self._merchant_secret_key
-        ]
-
-        hash_str = sha256(':'.join(options).encode())
-
-        return hash_str.hexdigest().upper()
+        return sha256(':'.join(params).encode()).hexdigest().upper()
 
     def merchant(
             self,
@@ -108,8 +97,13 @@ class PayeerApi(object):
 
         desc_str = self.generate_description(data.get('description', ''))
 
-        signature = self.generate_signature(
-            data['order_id'], data['amount'], data['currency'], desc_str)
+        params_for_sign = (
+            self._merchant_id,
+            data['order_id'], data['amount'], data['currency'], desc_str,
+            self._merchant_secret_key
+        )
+
+        signature = self.generate_signature(params_for_sign)
 
         params = {
             'm_shop': self._merchant_id,
@@ -130,6 +124,43 @@ class PayeerApi(object):
             'description': description,
             'params': params
         }
+
+    def merchant_handler(self, request):
+
+        request_ip = request.META.get('REMOTE_ADDR', '')
+        if request_ip not in PAYEER_ALLOWED_IPS:
+            raise PayeerAPIException('Wrong request IP')
+
+        needed_params = (
+            'm_operation_id', 'm_operation_ps',
+            'm_operation_date', 'm_operation_pay_date',
+            'm_shop', 'm_orderid',
+            'm_amount', 'm_curr',
+            'm_desc', 'm_status'
+        )
+
+        received_params = OrderedDict()
+
+        for param_name in needed_params:
+            received_params[param_name] = request.POST.get(param_name, '')
+
+        m_params = request.POST.get('m_params', '')
+        if m_params:
+            received_params['m_params'] = m_params
+
+        params_for_sign = list(received_params.values()).append(self._merchant_secret_key)
+        sign = self.generate_signature(params_for_sign)
+
+        # TODO: Parse other params from request and add to received_params
+
+        if received_params['m_operation_id'] and sign == received_params['m_sign'] \
+                and received_params['m_status'] == 'success':
+
+            response_obj = HttpResponse(f"{received_params['m_orderid']}|success")
+            return True, received_params, response_obj
+
+        response_obj = HttpResponse(f"{received_params['m_orderid']}|error")
+        return False, received_params, response_obj
 
     def request_api(self, **params):
         """
